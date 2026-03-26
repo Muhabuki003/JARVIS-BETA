@@ -1,531 +1,628 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Model Viewer</title>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --arc: #00d4ff;
-            --arc-dim: rgba(0,212,255,0.12);
-            --arc-border: rgba(0,212,255,0.22);
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #000; overflow: hidden; font-family: 'Share Tech Mono', monospace; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WIRE CITY 001</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  --cyan: #00f5ff;
+  --cyan-dim: rgba(0,245,255,0.12);
+  --cyan-border: rgba(0,245,255,0.2);
+  --dark: #020608;
+}
 
-        #webcam {
-            position: absolute;
-            inset: 0;
-            width: 100vw; height: 100vh;
-            object-fit: cover;
-            transform: scaleX(-1);
-            z-index: 0;
-            filter: brightness(0.5) saturate(0.6);
-        }
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
-        canvas#three-canvas {
-            position: absolute;
-            inset: 0;
-            z-index: 1;
-            pointer-events: none;
-        }
+html { scroll-behavior: smooth; }
 
-        /* Corner brackets only — minimal HUD */
-        .corner {
-            position: absolute;
-            width: 32px; height: 32px;
-            border-color: var(--arc);
-            border-style: solid;
-            opacity: 0.5;
-            z-index: 2;
-            pointer-events: none;
-        }
-        .c-tl { top: 16px; left: 16px; border-width: 2px 0 0 2px; }
-        .c-tr { top: 16px; right: 16px; border-width: 2px 2px 0 0; }
-        .c-bl { bottom: 16px; left: 16px; border-width: 0 0 2px 2px; }
-        .c-br { bottom: 16px; right: 16px; border-width: 0 2px 2px 0; }
+body {
+  background: var(--dark);
+  color: white;
+  font-family: 'Share Tech Mono', monospace;
+  overflow-x: hidden;
+}
 
-        /* Upload drop zone — shown when no model loaded */
-        #drop-zone {
-            position: absolute;
-            inset: 0;
-            z-index: 5;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 16px;
-            background: rgba(0,0,0,0.72);
-            transition: opacity 0.4s;
-        }
-        #drop-zone.hidden { opacity: 0; pointer-events: none; }
+/* ── STICKY VIEWER ── */
+#viewer-wrap {
+  position: sticky;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+  background: var(--dark);
+}
 
-        .drop-box {
-            border: 1px dashed var(--arc-border);
-            border-radius: 4px;
-            padding: 48px 64px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            background: var(--arc-dim);
-        }
-        .drop-box:hover, .drop-box.drag-over {
-            border-color: var(--arc);
-            background: rgba(0,212,255,0.08);
-        }
-        .drop-icon {
-            font-size: 36px;
-            margin-bottom: 12px;
-            opacity: 0.6;
-        }
-        .drop-title {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 13px;
-            letter-spacing: 3px;
-            color: var(--arc);
-            margin-bottom: 6px;
-        }
-        .drop-sub {
-            font-size: 10px;
-            letter-spacing: 2px;
-            color: rgba(255,255,255,0.3);
-        }
-        #file-input { display: none; }
+#viewer-wrap iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
 
-        /* Top left — model name */
-        #model-label {
-            position: absolute;
-            top: 20px; left: 20px;
-            z-index: 3;
-            pointer-events: none;
-        }
-        #model-name {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 10px;
-            letter-spacing: 3px;
-            color: var(--arc);
-            opacity: 0;
-            transition: opacity 0.4s;
-        }
-        #model-name.visible { opacity: 0.8; }
+/* Dark overlay on top of iframe for text contrast */
+#viewer-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgba(2,6,8,0.55) 0%, transparent 18%, transparent 82%, rgba(2,6,8,0.8) 100%),
+    linear-gradient(to right, rgba(2,6,8,0.3) 0%, transparent 20%, transparent 80%, rgba(2,6,8,0.3) 100%);
+  z-index: 2;
+}
 
-        /* Bottom status bar */
-        #status-bar {
-            position: absolute;
-            bottom: 20px; left: 50%;
-            transform: translateX(-50%);
-            z-index: 3;
-            display: flex;
-            align-items: center;
-            gap: 24px;
-            background: rgba(0,0,0,0.45);
-            border: 1px solid var(--arc-border);
-            border-bottom: 2px solid var(--arc);
-            padding: 8px 24px;
-            backdrop-filter: blur(10px);
-            pointer-events: none;
-            clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%, 0 10px);
-        }
-        .s-item { text-align: center; }
-        .s-val {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--arc);
-            line-height: 1;
-        }
-        .s-lbl {
-            font-size: 7px;
-            letter-spacing: 2px;
-            color: rgba(255,255,255,0.3);
-            text-transform: uppercase;
-            margin-top: 3px;
-        }
-        .s-div { width: 1px; height: 24px; background: var(--arc-border); }
+/* ── HERO TEXT ── */
+#hero-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 3;
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+#hero-text h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(64px, 10vw, 130px);
+  letter-spacing: 12px;
+  color: white;
+  line-height: 1;
+  text-shadow: 0 0 40px rgba(0,245,255,0.4);
+}
+#hero-text p {
+  font-size: 10px;
+  letter-spacing: 6px;
+  color: var(--cyan);
+  margin-top: 10px;
+  opacity: 0.7;
+}
+#hero-text.hidden { opacity: 0; }
 
-        /* Hand status */
-        #hand-status {
-            position: absolute;
-            bottom: 72px; left: 50%;
-            transform: translateX(-50%);
-            z-index: 3;
-            font-size: 8px;
-            letter-spacing: 3px;
-            color: rgba(0,212,255,0.4);
-            text-transform: uppercase;
-            pointer-events: none;
-            white-space: nowrap;
-            transition: color 0.3s;
-        }
-        #hand-status.on { color: #00ff88; text-shadow: 0 0 8px #00ff88; }
+/* Scroll cue */
+#scroll-cue {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  transition: opacity 0.5s;
+}
+#scroll-cue span {
+  font-size: 8px;
+  letter-spacing: 4px;
+  color: rgba(0,245,255,0.5);
+}
+#scroll-cue .arrow {
+  width: 1px;
+  height: 32px;
+  background: linear-gradient(to bottom, var(--cyan), transparent);
+  animation: drip 1.6s ease-in-out infinite;
+}
+@keyframes drip {
+  0% { transform: scaleY(0); transform-origin: top; opacity: 1; }
+  50% { transform: scaleY(1); transform-origin: top; opacity: 1; }
+  100% { transform: scaleY(1); transform-origin: bottom; opacity: 0; }
+}
+#scroll-cue.hidden { opacity: 0; }
 
-        /* Change model button */
-        #change-btn {
-            position: absolute;
-            top: 20px; right: 20px;
-            z-index: 3;
-            background: var(--arc-dim);
-            border: 1px solid var(--arc-border);
-            color: var(--arc);
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 9px;
-            letter-spacing: 2px;
-            padding: 8px 14px;
-            cursor: pointer;
-            text-transform: uppercase;
-            opacity: 0;
-            transition: all 0.3s;
-            backdrop-filter: blur(8px);
-        }
-        #change-btn.visible { opacity: 1; }
-        #change-btn:hover { background: rgba(0,212,255,0.15); border-color: var(--arc); }
+/* ── LOCATION TAG (top left overlay) ── */
+#location-tag {
+  position: absolute;
+  top: 28px;
+  left: 28px;
+  z-index: 4;
+  opacity: 0;
+  transition: opacity 0.5s;
+  pointer-events: none;
+}
+#location-tag.visible { opacity: 1; }
+#location-tag .loc-num {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: var(--cyan);
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+#location-tag .loc-name {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 28px;
+  letter-spacing: 4px;
+  line-height: 1;
+  color: white;
+}
+#location-tag .loc-sub {
+  font-size: 8px;
+  letter-spacing: 3px;
+  color: rgba(0,245,255,0.5);
+  margin-top: 6px;
+}
 
-        /* Gesture guide */
-        #gesture-guide {
-            position: absolute;
-            top: 50%; right: 20px;
-            transform: translateY(-50%);
-            z-index: 3;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.4s;
-        }
-        #gesture-guide.visible { opacity: 1; }
-        .g-item {
-            background: rgba(0,0,0,0.4);
-            border-left: 2px solid var(--arc);
-            padding: 6px 10px;
-            backdrop-filter: blur(6px);
-        }
-        .g-action {
-            font-size: 8px;
-            letter-spacing: 2px;
-            color: var(--arc);
-            text-transform: uppercase;
-        }
-        .g-desc {
-            font-size: 7px;
-            color: rgba(255,255,255,0.35);
-            margin-top: 2px;
-            letter-spacing: 1px;
-        }
+/* ── PROGRESS DOTS ── */
+#progress-dots {
+  position: absolute;
+  right: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: none;
+}
+.dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,245,255,0.4);
+  transition: all 0.4s;
+  background: transparent;
+}
+.dot.active {
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan);
+  border-color: var(--cyan);
+}
 
-        /* Scan line */
-        .scan-line {
-            position: absolute;
-            left: 0; right: 0; height: 1px;
-            background: linear-gradient(90deg, transparent, var(--arc), transparent);
-            animation: scan 5s linear infinite;
-            opacity: 0.2;
-            z-index: 2;
-            pointer-events: none;
-        }
-        @keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
-    </style>
+/* ── SCROLL SECTIONS (invisible — just create scroll height) ── */
+#scroll-driver {
+  position: relative;
+  z-index: 0;
+  margin-top: -100vh; /* overlap the sticky viewer */
+}
+
+.scroll-section {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 80px 0 0;
+  position: relative;
+  pointer-events: none;
+}
+
+/* ── CONTENT CARDS (right side, appear on scroll) ── */
+.content-card {
+  width: 320px;
+  background: rgba(2,6,8,0.75);
+  border: 1px solid var(--cyan-border);
+  border-left: 2px solid var(--cyan);
+  padding: 28px 24px;
+  backdrop-filter: blur(12px);
+  opacity: 0;
+  transform: translateX(30px);
+  transition: opacity 0.6s, transform 0.6s;
+  pointer-events: all;
+  position: relative;
+  z-index: 10;
+}
+.content-card.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+.card-index {
+  font-size: 9px;
+  letter-spacing: 4px;
+  color: var(--cyan);
+  opacity: 0.6;
+  margin-bottom: 8px;
+}
+.card-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 32px;
+  letter-spacing: 3px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+.card-body {
+  font-size: 11px;
+  line-height: 1.8;
+  color: rgba(255,255,255,0.55);
+  letter-spacing: 0.5px;
+}
+.card-line {
+  width: 32px;
+  height: 1px;
+  background: var(--cyan);
+  margin: 14px 0;
+  opacity: 0.5;
+}
+.card-stat {
+  display: flex;
+  gap: 20px;
+  margin-top: 14px;
+}
+.stat-n {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 22px;
+  color: var(--cyan);
+  line-height: 1;
+}
+.stat-l {
+  font-size: 8px;
+  letter-spacing: 2px;
+  color: rgba(255,255,255,0.3);
+  margin-top: 4px;
+}
+
+/* ── FINAL SECTION ── */
+#final-section {
+  min-height: 100vh;
+  background: var(--dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+  border-top: 1px solid var(--cyan-border);
+}
+.final-inner {
+  text-align: center;
+  max-width: 600px;
+  padding: 80px 40px;
+}
+.final-inner h2 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(48px, 7vw, 90px);
+  letter-spacing: 8px;
+  line-height: 1;
+  margin-bottom: 20px;
+}
+.final-inner p {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: rgba(255,255,255,0.4);
+  line-height: 2;
+  margin-bottom: 32px;
+}
+.final-btn {
+  display: inline-block;
+  padding: 14px 36px;
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: all 0.3s;
+  background: transparent;
+  cursor: pointer;
+}
+.final-btn:hover {
+  background: var(--cyan);
+  color: var(--dark);
+}
+
+/* Scanlines */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0,0,0,0.04) 3px,
+    rgba(0,0,0,0.04) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Notify bar */
+#notify {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(60px);
+  z-index: 100;
+  background: rgba(2,6,8,0.9);
+  border: 1px solid var(--cyan-border);
+  border-bottom: 2px solid var(--cyan);
+  padding: 10px 24px;
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--cyan);
+  backdrop-filter: blur(10px);
+  transition: transform 0.4s;
+  white-space: nowrap;
+}
+#notify.show { transform: translateX(-50%) translateY(0); }
+</style>
 </head>
 <body>
 
-<video id="webcam" autoplay playsinline muted></video>
-<canvas id="three-canvas"></canvas>
+<!-- STICKY VIEWER -->
+<div id="viewer-wrap">
+  <iframe
+    id="sketchfab-iframe"
+    title="Wire Frame City 001"
+    allow="autoplay; fullscreen; xr-spatial-tracking"
+    src="https://sketchfab.com/models/ffe587c35191442082ea9a417abada2d/embed?autospin=0&autostart=1&ui_infos=0&ui_watermark=0&ui_controls=0&ui_stop=0&preload=1&transparent=0&ui_annotations=1">
+  </iframe>
+  <div id="viewer-overlay"></div>
 
-<!-- Minimal HUD -->
-<div class="corner c-tl"></div>
-<div class="corner c-tr"></div>
-<div class="corner c-bl"></div>
-<div class="corner c-br"></div>
-<div class="scan-line"></div>
+  <div id="hero-text">
+    <h1>WIRE CITY</h1>
+    <p>SCROLL TO EXPLORE THE GRID</p>
+  </div>
 
-<!-- Upload screen -->
-<div id="drop-zone">
-    <div class="drop-box" id="drop-box">
-        <div class="drop-icon">⬡</div>
-        <div class="drop-title">Drop GLB File Here</div>
-        <div class="drop-sub">or click to browse</div>
-    </div>
-    <input type="file" id="file-input" accept=".glb,.gltf">
+  <div id="scroll-cue">
+    <span>SCROLL</span>
+    <div class="arrow"></div>
+  </div>
+
+  <div id="location-tag">
+    <div class="loc-num" id="loc-num">—</div>
+    <div class="loc-name" id="loc-name">—</div>
+    <div class="loc-sub" id="loc-sub">—</div>
+  </div>
+
+  <div id="progress-dots">
+    <!-- populated by JS -->
+  </div>
 </div>
 
-<!-- Model name top left -->
-<div id="model-label">
-    <div id="model-name">—</div>
+<!-- SCROLL DRIVER (stacks over sticky) -->
+<div id="scroll-driver">
+  <!-- Section 0: intro spacer -->
+  <div class="scroll-section" data-index="-1"></div>
+
+  <!-- Sections 1–6 for each annotation -->
+  <div class="scroll-section" data-index="0">
+    <div class="content-card" id="card-0">
+      <div class="card-index">LOCATION 01 / 06</div>
+      <div class="card-title">City Core</div>
+      <div class="card-line"></div>
+      <div class="card-body">The central grid. Every signal in the city passes through this node. Dense, recursive, alive — even at the wire level.</div>
+      <div class="card-stat">
+        <div><div class="stat-n">4.2M</div><div class="stat-l">NODES</div></div>
+        <div><div class="stat-n">∞</div><div class="stat-l">CONNECTIONS</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scroll-section" data-index="1">
+    <div class="content-card" id="card-1">
+      <div class="card-index">LOCATION 02 / 06</div>
+      <div class="card-title">Transit Hub</div>
+      <div class="card-line"></div>
+      <div class="card-body">Arteries of movement. The city breathes through corridors like these — structured chaos flowing at 60fps.</div>
+      <div class="card-stat">
+        <div><div class="stat-n">12</div><div class="stat-l">LINES</div></div>
+        <div><div class="stat-n">0.8s</div><div class="stat-l">AVG DELAY</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scroll-section" data-index="2">
+    <div class="content-card" id="card-2">
+      <div class="card-index">LOCATION 03 / 06</div>
+      <div class="card-title">Data Tower</div>
+      <div class="card-line"></div>
+      <div class="card-body">Vertical computation. The tower processes 3.1 billion queries per second, its structure a physical map of its own architecture.</div>
+      <div class="card-stat">
+        <div><div class="stat-n">3.1B</div><div class="stat-l">QUERIES/S</div></div>
+        <div><div class="stat-n">99.9%</div><div class="stat-l">UPTIME</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scroll-section" data-index="3">
+    <div class="content-card" id="card-3">
+      <div class="card-index">LOCATION 04 / 06</div>
+      <div class="card-title">Residential Grid</div>
+      <div class="card-line"></div>
+      <div class="card-body">Where the city rests. Modular living units stacked in fractal patterns — each block a copy of the last, shifted one degree.</div>
+      <div class="card-stat">
+        <div><div class="stat-n">840K</div><div class="stat-l">UNITS</div></div>
+        <div><div class="stat-n">2.1M</div><div class="stat-l">OCCUPANTS</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scroll-section" data-index="4">
+    <div class="content-card" id="card-4">
+      <div class="card-index">LOCATION 05 / 06</div>
+      <div class="card-title">Harbor Edge</div>
+      <div class="card-line"></div>
+      <div class="card-body">The city meets the void. Export terminals handle 400 terabytes of outbound data daily — all rendered in wireframe at the boundary layer.</div>
+      <div class="card-stat">
+        <div><div class="stat-n">400TB</div><div class="stat-l">DAILY OUT</div></div>
+        <div><div class="stat-n">6</div><div class="stat-l">TERMINALS</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scroll-section" data-index="5">
+    <div class="content-card" id="card-5">
+      <div class="card-index">LOCATION 06 / 06</div>
+      <div class="card-title">Outer Ring</div>
+      <div class="card-line"></div>
+      <div class="card-body">Perimeter systems. Beyond this line the grid dissolves into noise. The city knows its own edges — and chooses not to exceed them.</div>
+      <div class="card-stat">
+        <div><div class="stat-n">18km</div><div class="stat-l">RADIUS</div></div>
+        <div><div class="stat-n">0</div><div class="stat-l">BEYOND</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spacer to let last section settle -->
+  <div style="height: 50vh;"></div>
 </div>
 
-<!-- Change model button -->
-<button id="change-btn" onclick="document.getElementById('file-input').click()">⬡ Change Model</button>
-
-<!-- Gesture guide -->
-<div id="gesture-guide">
-    <div class="g-item">
-        <div class="g-action">One Hand — Move</div>
-        <div class="g-desc">Index finger controls position</div>
-    </div>
-    <div class="g-item">
-        <div class="g-action">Pinch — Scale</div>
-        <div class="g-desc">Thumb + index distance</div>
-    </div>
-    <div class="g-item">
-        <div class="g-action">Wrist Roll — Rotate</div>
-        <div class="g-desc">Tilt hand left / right</div>
-    </div>
+<!-- FINAL SECTION -->
+<div id="final-section">
+  <div class="final-inner">
+    <h2>END OF<br>THE GRID</h2>
+    <p>You've traversed the full wireframe of Wire City 001.<br>Every node connected. Every edge accounted for.</p>
+    <a href="#" class="final-btn" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;">↑ RETURN TO ORIGIN</a>
+  </div>
 </div>
 
-<!-- Status bar -->
-<div id="status-bar">
-    <div class="s-item"><div class="s-val" id="s-scale">1.0x</div><div class="s-lbl">Scale</div></div>
-    <div class="s-div"></div>
-    <div class="s-item"><div class="s-val" id="s-rot">0°</div><div class="s-lbl">Rotation</div></div>
-    <div class="s-div"></div>
-    <div class="s-item"><div class="s-val" id="s-x">0.0</div><div class="s-lbl">X</div></div>
-    <div class="s-div"></div>
-    <div class="s-item"><div class="s-val" id="s-y">0.0</div><div class="s-lbl">Y</div></div>
-    <div class="s-div"></div>
-    <div class="s-item"><div class="s-val" id="s-fps">60</div><div class="s-lbl">FPS</div></div>
-</div>
+<div id="notify">◈ NAVIGATING TO LOCATION</div>
 
-<div id="hand-status">◈ NO MODEL LOADED</div>
+<script>
+// ── Sketchfab API ─────────────────────────────────────────────
+const iframe = document.getElementById('sketchfab-iframe');
+let api = null;
+let annotations = [];
+let apiReady = false;
 
-<script type="importmap">
-{
-    "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-    }
-}
-</script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-
-<script type="module">
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-
-// ─── Renderer ───────────────────────────────────────────────
-const canvas = document.getElementById('three-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.2;
-
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 1000);
-camera.position.set(0, 0, 4);
-
-// ─── Lighting ────────────────────────────────────────────────
-const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambient);
-const key = new THREE.DirectionalLight(0x00d4ff, 2.0);
-key.position.set(3, 4, 2);
-scene.add(key);
-const fill = new THREE.DirectionalLight(0xffffff, 0.8);
-fill.position.set(-3, 2, 2);
-scene.add(fill);
-const rim = new THREE.DirectionalLight(0x00d4ff, 0.5);
-rim.position.set(0, -2, -3);
-scene.add(rim);
-
-// ─── Model container ─────────────────────────────────────────
-const modelGroup = new THREE.Group();
-scene.add(modelGroup);
-
-let modelLoaded = false;
-let autoRotSpeed = 0.008;
-
-// ─── GLTF Loader ─────────────────────────────────────────────
-const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
-const loader = new GLTFLoader();
-loader.setDRACOLoader(dracoLoader);
-
-function loadGLB(url, name) {
-    // Clear old model
-    while (modelGroup.children.length) modelGroup.remove(modelGroup.children[0]);
-    modelLoaded = false;
-
-    loader.load(url, gltf => {
-        const model = gltf.scene;
-
-        // Auto-center and scale to fit
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 2.0 / maxDim;
-        model.scale.setScalar(scale);
-        model.position.sub(center.multiplyScalar(scale));
-
-        modelGroup.add(model);
-        modelGroup.position.set(0, 0, 0);
-        modelGroup.rotation.set(0, 0, 0);
-        modelGroup.scale.set(1, 1, 1);
-
-        modelLoaded = true;
-
-        // Show UI
-        document.getElementById('drop-zone').classList.add('hidden');
-        document.getElementById('model-name').textContent = name.replace(/\.(glb|gltf)$/i, '').toUpperCase();
-        document.getElementById('model-name').classList.add('visible');
-        document.getElementById('change-btn').classList.add('visible');
-        document.getElementById('gesture-guide').classList.add('visible');
-        document.getElementById('hand-status').textContent = '◈ AWAITING HAND SIGNAL';
-
-        URL.revokeObjectURL(url);
-    }, undefined, err => {
-        console.error(err);
-        alert('Failed to load model. Make sure it\'s a valid GLB/GLTF file.');
+const client = new window.Sketchfab(iframe);
+client.init('ffe587c35191442082ea9a417abada2d', {
+  success: function(apiInstance) {
+    api = apiInstance;
+    api.start();
+    api.addEventListener('viewerready', () => {
+      apiReady = true;
+      api.getAnnotationList((err, list) => {
+        if (!err && list) {
+          annotations = list;
+          buildDots(list.length);
+        }
+      });
     });
+  },
+  error: () => console.warn('Sketchfab API failed — annotations will be simulated'),
+  autostart: 1,
+  ui_infos: 0,
+  ui_watermark: 0,
+  ui_controls: 0,
+  ui_stop: 0,
+  ui_annotations: 1,
+  preload: 1,
+});
+
+// ── Build progress dots ───────────────────────────────────────
+function buildDots(count) {
+  const wrap = document.getElementById('progress-dots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < count; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot';
+    d.dataset.i = i;
+    wrap.appendChild(d);
+  }
 }
 
-// ─── File input ──────────────────────────────────────────────
-const fileInput = document.getElementById('file-input');
-const dropBox = document.getElementById('drop-box');
+// ── Location names (fallback if API returns generic names) ────
+const locationNames = [
+  { num: 'LOC — 01', name: 'City Core', sub: 'Central Grid Node' },
+  { num: 'LOC — 02', name: 'Transit Hub', sub: 'Movement Corridor' },
+  { num: 'LOC — 03', name: 'Data Tower', sub: 'Vertical Compute' },
+  { num: 'LOC — 04', name: 'Residential', sub: 'Modular Living Grid' },
+  { num: 'LOC — 05', name: 'Harbor Edge', sub: 'Export Terminal' },
+  { num: 'LOC — 06', name: 'Outer Ring', sub: 'Perimeter System' },
+];
 
-dropBox.addEventListener('click', () => fileInput.click());
+// ── Scroll logic ──────────────────────────────────────────────
+const sections = document.querySelectorAll('.scroll-section[data-index]');
+const cards = document.querySelectorAll('.content-card');
+const heroText = document.getElementById('hero-text');
+const scrollCue = document.getElementById('scroll-cue');
+const locationTag = document.getElementById('location-tag');
+const notify = document.getElementById('notify');
 
-fileInput.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    loadGLB(url, file.name);
-    fileInput.value = '';
-});
+let currentAnnotation = -1;
+let notifyTimer = null;
 
-// Drag & drop
-dropBox.addEventListener('dragover', e => { e.preventDefault(); dropBox.classList.add('drag-over'); });
-dropBox.addEventListener('dragleave', () => dropBox.classList.remove('drag-over'));
-dropBox.addEventListener('drop', e => {
-    e.preventDefault();
-    dropBox.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if (file) { loadGLB(URL.createObjectURL(file), file.name); }
-});
+function goToAnnotation(index) {
+  if (index === currentAnnotation) return;
+  currentAnnotation = index;
 
-// ─── Hand Tracking ───────────────────────────────────────────
-const videoEl = document.getElementById('webcam');
-const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75 });
+  // Update dots
+  document.querySelectorAll('.dot').forEach((d, i) => {
+    d.classList.toggle('active', i === index);
+  });
 
-let handOn = false;
-let prevPinch = null;
-let prevWristX = null;
-let targetPos = new THREE.Vector3();
-let targetScale = 1.0;
-let currentScale = 1.0;
-let manualRotY = 0;
-let manualRotX = 0;
+  // Update location tag
+  const loc = locationNames[index] || { num: `LOC — 0${index+1}`, name: `Point ${index+1}`, sub: 'Location' };
+  document.getElementById('loc-num').textContent = loc.num;
+  document.getElementById('loc-name').textContent = loc.name;
+  document.getElementById('loc-sub').textContent = loc.sub;
+  locationTag.classList.add('visible');
 
-hands.onResults(results => {
-    if (!modelLoaded) return;
+  // Show notify
+  clearTimeout(notifyTimer);
+  notify.classList.add('show');
+  notifyTimer = setTimeout(() => notify.classList.remove('show'), 1800);
 
-    if (results.multiHandLandmarks?.length > 0) {
-        handOn = true;
-        const lm = results.multiHandLandmarks[0];
-
-        const index = lm[8];   // index fingertip
-        const thumb = lm[4];   // thumb tip
-        const wrist = lm[0];
-        const mcp   = lm[9];   // middle finger base — for wrist roll reference
-
-        // Position: map index finger to 3D space
-        const nx = (1 - index.x - 0.5) * 6 * (innerWidth / innerHeight);
-        const ny = (0.5 - index.y) * 6;
-        targetPos.set(nx, ny, 0);
-
-        // Scale: pinch distance
-        const pinch = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-        if (prevPinch !== null) {
-            const delta = pinch - prevPinch;
-            targetScale = Math.max(0.1, Math.min(6, targetScale + delta * 8));
-        }
-        prevPinch = pinch;
-
-        // Rotation Y: wrist horizontal tilt (wrist vs middle mcp x difference)
-        const wristRoll = (wrist.x - mcp.x) * 10;
-        if (prevWristX !== null) {
-            manualRotY += (wristRoll - prevWristX) * 0.8;
-        }
-        prevWristX = wristRoll;
-
-        // Rotation X: index finger vertical position relative to wrist
-        manualRotX = (index.y - wrist.y) * 3;
-
-        // HUD
-        document.getElementById('hand-status').textContent = '◉ HAND LOCKED — CONTROLLING MODEL';
-        document.getElementById('hand-status').className = 'on';
-        document.getElementById('s-x').textContent = nx.toFixed(1);
-        document.getElementById('s-y').textContent = ny.toFixed(1);
-
-    } else {
-        handOn = false;
-        prevPinch = null;
-        prevWristX = null;
-        document.getElementById('hand-status').textContent = '◈ AWAITING HAND SIGNAL';
-        document.getElementById('hand-status').className = '';
-    }
-});
-
-const camFeed = new Camera(videoEl, {
-    onFrame: async () => await hands.send({ image: videoEl }),
-    width: 1280, height: 720
-});
-camFeed.start();
-
-// ─── Render Loop ─────────────────────────────────────────────
-let frame = 0;
-let lastT = performance.now();
-
-function animate() {
-    requestAnimationFrame(animate);
-    frame++;
-
-    if (!modelLoaded) {
-        renderer.render(scene, camera);
-        return;
-    }
-
-    if (handOn) {
-        // Smooth position
-        modelGroup.position.lerp(targetPos, 0.12);
-        // Smooth scale
-        currentScale += (targetScale - currentScale) * 0.1;
-        modelGroup.scale.setScalar(currentScale);
-        // Rotation from hand
-        modelGroup.rotation.y += (manualRotY - modelGroup.rotation.y) * 0.08;
-        modelGroup.rotation.x += (manualRotX - modelGroup.rotation.x) * 0.06;
-    } else {
-        // Auto rotate when no hand
-        modelGroup.position.lerp(new THREE.Vector3(0, 0, 0), 0.04);
-        modelGroup.scale.lerp(new THREE.Vector3(1,1,1), 0.04);
-        modelGroup.rotation.y += autoRotSpeed;
-        modelGroup.rotation.x += (0 - modelGroup.rotation.x) * 0.03;
-    }
-
-    // FPS
-    if (frame % 15 === 0) {
-        const now = performance.now();
-        document.getElementById('s-fps').textContent = Math.round(15000 / (now - lastT));
-        lastT = now;
-    }
-
-    // HUD updates
-    document.getElementById('s-scale').textContent = currentScale.toFixed(1) + 'x';
-    document.getElementById('s-rot').textContent = Math.round((modelGroup.rotation.y * 180 / Math.PI) % 360) + '°';
-
-    renderer.render(scene, camera);
+  // Jump Sketchfab to annotation
+  if (apiReady && api) {
+    api.gotoAnnotation(index, { preventCameraAnimation: false });
+  }
 }
-animate();
 
-window.addEventListener('resize', () => {
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
+function hideLocationTag() {
+  locationTag.classList.remove('visible');
+  currentAnnotation = -1;
+  document.querySelectorAll('.dot').forEach(d => d.classList.remove('active'));
+}
+
+function onScroll() {
+  const scrollY = window.scrollY;
+  const vh = window.innerHeight;
+
+  // Show/hide hero
+  const heroThreshold = vh * 0.4;
+  heroText.classList.toggle('hidden', scrollY > heroThreshold);
+  scrollCue.classList.toggle('hidden', scrollY > heroThreshold * 0.5);
+
+  // Determine active section
+  let activeIndex = -1;
+  sections.forEach(sec => {
+    const idx = parseInt(sec.dataset.index);
+    if (idx < 0) return;
+    const rect = sec.getBoundingClientRect();
+    const center = rect.top + rect.height / 2;
+    if (center < vh * 0.65 && center > vh * 0.05) {
+      activeIndex = idx;
+    }
+  });
+
+  if (activeIndex >= 0) {
+    goToAnnotation(activeIndex);
+  } else if (scrollY < heroThreshold) {
+    hideLocationTag();
+  }
+
+  // Animate cards
+  cards.forEach(card => {
+    const rect = card.getBoundingClientRect();
+    const inView = rect.top < vh * 0.85 && rect.bottom > 0;
+    card.classList.toggle('visible', inView);
+  });
+}
+
+window.addEventListener('scroll', onScroll, { passive: true });
+onScroll(); // init
+
+// ── Keyboard nav ─────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const total = locationNames.length;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+    const next = Math.min((currentAnnotation < 0 ? -1 : currentAnnotation) + 1, total - 1);
+    const section = document.querySelector(`.scroll-section[data-index="${next}"]`);
+    if (section) section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+    const prev = Math.max(currentAnnotation - 1, 0);
+    const section = document.querySelector(`.scroll-section[data-index="${prev}"]`);
+    if (section) section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 });
 </script>
+
+<!-- Sketchfab API -->
+<script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
 </body>
 </html>
