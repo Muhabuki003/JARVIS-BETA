@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Model Mirror & Particles</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Inter', sans-serif; }
+        #webcam { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: -1; }
+        canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+        
+        #ui-panel {
+            position: absolute; top: 20px; right: 20px; width: 260px; padding: 20px;
+            background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(15px);
+            border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.1); color: white; z-index: 10;
+        }
+        .control-group { margin-bottom: 15px; }
+        label { display: block; font-size: 10px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7; }
+        select, input[type="color"], input[type="file"] {
+            width: 100%; padding: 10px; background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2); color: white; border-radius: 8px; font-size: 12px;
+        }
+        .upload-btn { cursor: pointer; display: block; text-align: center; border: 1px dashed #555; padding: 10px; }
+    </style>
+</head>
+<body>
+
+    <video id="webcam" autoplay playsinline></video>
+
+    <div id="ui-panel">
+        <h3 style="margin: 0 0 15px 0; font-weight: 400; color: #00f2ff;">Real-Space Viewer</h3>
+        
+        <div class="control-group">
+            <label>Upload 3D Model (.glb)</label>
+            <input type="file" id="file-upload" accept=".glb, .gltf">
+        </div>
+
+        <div class="control-group">
+            <label>Particle Aura</label>
+            <select id="template-select">
+                <option value="none">None</option>
+                <option value="heart">Heart</option>
+                <option value="saturn">Saturn</option>
+                <option value="cloud">Stardust</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Aura Color</label>
+            <input type="color" id="color-picker" value="#00f2ff">
+        </div>
+        <div style="font-size: 10px; opacity: 0.5;">Pinch to scale • Move hand to position</div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const light = new THREE.AmbientLight(0xffffff, 2);
+        scene.add(light);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+        directionalLight.position.set(5, 5, 5);
+        scene.add(directionalLight);
+
+        camera.position.z = 5;
+
+        // --- Model & Particle Container ---
+        const mainGroup = new THREE.Group();
+        scene.add(mainGroup);
+
+        let currentModel = null;
+        const loader = new GLTFLoader();
+
+        // --- Particle Logic ---
+        const particleCount = 4000;
+        const geometry = new THREE.BufferGeometry();
+        const material = new THREE.PointsMaterial({ size: 0.03, transparent: true, blending: THREE.AdditiveBlending });
+        const particles = new THREE.Points(geometry, material);
+        mainGroup.add(particles);
+
+        function createShape(type) {
+            const pos = new Float32Array(particleCount * 3);
+            if (type === 'none') { geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3)); return; }
+            for (let i = 0; i < particleCount; i++) {
+                let x=0, y=0, z=0;
+                if (type === 'heart') {
+                    const t = Math.random() * Math.PI * 2;
+                    x = 0.08 * (16 * Math.pow(Math.sin(t), 3));
+                    y = 0.08 * (13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t));
+                } else if (type === 'saturn') {
+                    const r = 1.2 + Math.random() * 0.3; const a = Math.random() * Math.PI * 2;
+                    x = Math.cos(a) * r; z = Math.sin(a) * r;
+                }
+                pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
+            }
+            geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        }
+
+        // --- File Upload Handling ---
+        document.getElementById('file-upload').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            const url = URL.createObjectURL(file);
+            if (currentModel) mainGroup.remove(currentModel);
+            
+            loader.load(url, (gltf) => {
+                currentModel = gltf.scene;
+                // Auto-center and scale model
+                const box = new THREE.Box3().setFromObject(currentModel);
+                const size = box.getSize(new THREE.Vector3()).length();
+                currentModel.scale.setScalar(1 / size); 
+                mainGroup.add(currentModel);
+            });
+        });
+
+        // --- Tracking Logic ---
+        const videoElement = document.getElementById('webcam');
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, minDetectionConfidence: 0.7 });
+
+        hands.onResults((results) => {
+            if (results.multiHandLandmarks?.length > 0) {
+                const hand = results.multiHandLandmarks[0];
+                const indexTip = hand[8];
+                const thumbTip = hand[4];
+
+                const screenX = (1 - indexTip.x - 0.5) * 10 * (window.innerWidth / window.innerHeight);
+                const screenY = (0.5 - indexTip.y) * 10;
+                mainGroup.position.lerp(new THREE.Vector3(screenX, screenY, 0), 0.2);
+
+                const dist = Math.sqrt(Math.pow(thumbTip.x - indexTip.x, 2) + Math.pow(thumbTip.y - indexTip.y, 2));
+                const scale = Math.max(0.2, dist * 10);
+                mainGroup.scale.lerp(new THREE.Vector3(scale, scale, scale), 0.1);
+            }
+        });
+
+        const cameraFeed = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 1280, height: 720
+        });
+        cameraFeed.start();
+
+        document.getElementById('template-select').addEventListener('change', (e) => createShape(e.target.value));
+        document.getElementById('color-picker').addEventListener('input', (e) => material.color.set(e.target.value));
+
+        function animate() {
+            requestAnimationFrame(animate);
+            mainGroup.rotation.y += 0.01;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
